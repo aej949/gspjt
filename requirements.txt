@@ -1,5 +1,0 @@
-yfinance
-pandas
-plotly
-streamlit
-koreanize-matplotlib
