@@ -12,19 +12,28 @@ st.set_page_config(page_title="금·은 자산 경제위기 분석 대시보드"
 # st.markdown("""<style> body { font-family: 'Malgun Gothic'; } </style>""", unsafe_allow_html=True)
 
 def load_data():
-    db_path = os.path.join('gspjt', 'data', 'commodity_analysis.db')
-    conn = sqlite3.connect(db_path)
+    # 스크립트 파일의 위치를 기준으로 DB 경로 설정 (더 견고한 경로 탐색)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    db_path = os.path.join(base_dir, 'data', 'commodity_analysis.db')
     
-    # 데이터 로드
-    raw_df = pd.read_sql("SELECT * FROM raw_prices", conn)
-    perf_df = pd.read_sql("SELECT * FROM crisis_performance", conn)
-    ratio_df = pd.read_sql("SELECT * FROM gold_silver_ratio", conn)
-    
-    raw_df['Date'] = pd.to_datetime(raw_df['Date'])
-    ratio_df['Date'] = pd.to_datetime(ratio_df['Date'])
-    
-    conn.close()
-    return raw_df, perf_df, ratio_df
+    if not os.path.exists(db_path):
+        st.error(f"데이터베이스 파일을 찾을 수 없습니다: {db_path}\n\n`src/collect.py`와 `src/analyze.py`를 먼저 실행해 주세요.")
+        st.stop()
+        
+    try:
+        conn = sqlite3.connect(db_path)
+        # 데이터 로드
+        raw_df = pd.read_sql("SELECT * FROM raw_prices", conn)
+        perf_df = pd.read_sql("SELECT * FROM crisis_performance", conn)
+        ratio_df = pd.read_sql("SELECT * FROM gold_silver_ratio", conn)
+        conn.close()
+        
+        raw_df['Date'] = pd.to_datetime(raw_df['Date'])
+        ratio_df['Date'] = pd.to_datetime(ratio_df['Date'])
+        return raw_df, perf_df, ratio_df
+    except Exception as e:
+        st.error(f"데이터 로드 중 오류가 발생했습니다: {e}")
+        st.stop()
 
 def main():
     st.title("🏆 금·은 자산 경제위기 대응력 및 성과 분석")
@@ -33,6 +42,10 @@ def main():
     """)
 
     raw_df, perf_df, ratio_df = load_data()
+    
+    if raw_df.empty:
+        st.warning("데이터가 비어 있습니다. `src/collect.py`를 실행하여 데이터를 수집해 주세요.")
+        st.stop()
 
     # 1. 사이드바 - 위기 선택
     crises = {
@@ -108,14 +121,19 @@ def main():
     st.divider()
     st.subheader("💡 분석 결론")
     
-    avg_gold_ret = perf_df[perf_df['Asset'] == 'Gold']['Cumulative_Return'].mean()
-    avg_sp_ret = perf_df[perf_df['Asset'] == 'S&P500']['Cumulative_Return'].mean()
-    
-    st.info(f"""
-    - **금의 방어적 성과**: 분석된 5대 위기 기간 동안 금은 평균적으로 S&P 500 대비 {avg_gold_ret - avg_sp_ret:+.2%}의 성과를 기록했습니다.
-    - **가장 뛰어난 방어 시기**: {perf_df.loc[perf_df[perf_df['Asset']=='Gold']['Cumulative_Return'].idxmax(), 'Crisis']} 기간에 금이 가장 높은 수익률을 기록했습니다.
-    - **금-은 비율 활용**: 현재 금-은 비율이 {ratio_df['Ratio'].iloc[-1]:.2f}로 역사적 평균({avg_ratio:.2f}) 대비 {'높은' if ratio_df['Ratio'].iloc[-1] > avg_ratio else '낮은'} 수준입니다.
-    """)
+    if not perf_df.empty and 'Gold' in perf_df['Asset'].values and 'S&P500' in perf_df['Asset'].values:
+        avg_gold_ret = perf_df[perf_df['Asset'] == 'Gold']['Cumulative_Return'].mean()
+        avg_sp_ret = perf_df[perf_df['Asset'] == 'S&P500']['Cumulative_Return'].mean()
+        
+        best_crisis = perf_df[perf_df['Asset']=='Gold'].sort_values('Cumulative_Return', ascending=False).iloc[0]['Crisis']
+        
+        st.info(f"""
+        - **금의 방어적 성과**: 분석된 5대 위기 기간 동안 금은 평균적으로 S&P 500 대비 {avg_gold_ret - avg_sp_ret:+.2%}의 성과를 기록했습니다.
+        - **가장 뛰어난 방어 시기**: {best_crisis} 기간에 금이 가장 높은 수익률을 기록했습니다.
+        - **금-은 비율 활용**: 현재 금-은 비율이 {ratio_df['Ratio'].iloc[-1]:.2f}로 역사적 평균({avg_ratio:.2f}) 대비 {'높은' if ratio_df['Ratio'].iloc[-1] > avg_ratio else '낮은'} 수준입니다.
+        """)
+    else:
+        st.info("충분한 성과 데이터가 수집되지 않아 통계적 결론을 도출할 수 없습니다. 데이터를 다시 확인해 주세요.")
 
 if __name__ == "__main__":
     main()
